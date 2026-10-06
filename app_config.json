@@ -1,0 +1,8 @@
+{
+  "kind": "hymotion",
+  "title": "HY-Motion Studio",
+  "subtitle": "把一句描述，变成一段动作。",
+  "description": "腾讯 HY-Motion 1.0 · 文字生成身体动作",
+  "port": 8770,
+  "upstream": "https://github.com/Tencent-Hunyuan/HY-Motion-1.0"
+}

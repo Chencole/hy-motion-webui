@@ -1,0 +1,1 @@
+window.MOTION_SHOWCASE_CONFIG = {"kind":"hymotion","title":"HY-Motion Studio","subtitle":"把一句描述，变成一段动作。","description":"腾讯 HY-Motion 1.0 · 文字生成身体动作","port":8770,"upstream":"https://github.com/Tencent-Hunyuan/HY-Motion-1.0","showcase":true,"backend":{"message":"这是免费公开界面展示，未启用在线推理。请从页面底部的 GitHub 源码安装并启动本机版本。","ready":false}};
