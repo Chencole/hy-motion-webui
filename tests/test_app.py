@@ -19,6 +19,7 @@ from unittest import mock
 import zipfile
 
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -377,6 +378,80 @@ class AppTests(unittest.TestCase):
         self.watch_once()
         self.assertEqual(task["status"], "cancelled")
         self.assertNotIn(client_id, self.mod.clients)
+
+    def wait_until(self, predicate, timeout=2):
+        deadline = time.monotonic() + timeout
+        while not predicate() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(predicate(), "expected asynchronous state transition did not occur")
+
+    def assert_socket_rejected(self, client, client_id, headers):
+        with self.assertRaises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect(f"/api/client/{client_id}/watch", headers=headers):
+                self.fail("untrusted WebSocket connection was accepted")
+        self.assertEqual(rejected.exception.code, 1008)
+
+    def test_websocket_disconnect_marks_close_without_beacon_and_stops_local(self):
+        task = self.task()
+        client_id = self.open_client()
+        callback = mock.Mock()
+        self.mod.app.state.exit_on_close = True
+        self.mod.app.state.shutdown_callback = callback
+        with self.client.websocket_connect(f"/api/client/{client_id}/watch", headers={"origin": "http://testserver"}) as socket:
+            self.wait_until(lambda: self.mod.clients[client_id].get("connected"))
+            socket.send_text("ping")
+            self.assertNotIn("closed", self.mod.clients[client_id])
+        self.wait_until(lambda: bool(self.mod.clients[client_id].get("closed")))
+        self.assertFalse(self.mod.clients[client_id]["connected"])
+        self.expire_client(client_id)
+        self.watch_once()
+        self.assertEqual(task["status"], "cancelled")
+        callback.assert_called_once_with()
+
+    def test_connected_websocket_survives_background_heartbeat_timeout(self):
+        task = self.task()
+        client_id = self.open_client()
+        with self.client.websocket_connect(f"/api/client/{client_id}/watch", headers={"origin": "http://testserver"}):
+            self.wait_until(lambda: self.mod.clients[client_id].get("connected"))
+            self.mod.clients[client_id]["seen"] = time.monotonic() - self.mod.CLIENT_TIMEOUT - 1
+            self.watch_once()
+            self.assertEqual(task["status"], "queued")
+            self.assertIn(client_id, self.mod.clients)
+            self.assertTrue(self.mod.clients[client_id]["connected"])
+
+    def test_websocket_rejects_missing_or_cross_origin(self):
+        client_id = self.open_client()
+        for origin in (None, "https://elsewhere.invalid", "null"):
+            with self.subTest(origin=origin):
+                self.assert_socket_rejected(self.client, client_id, {} if origin is None else {"origin": origin})
+        self.assertFalse(self.mod.clients[client_id].get("connected", False))
+
+    def test_websocket_rejects_missing_or_malformed_session_cookie(self):
+        client_id = self.open_client()
+        outsider = TestClient(self.mod.app)
+        self.addCleanup(outsider.close)
+        self.assert_socket_rejected(outsider, client_id, {"origin": "http://testserver"})
+        self.assert_socket_rejected(outsider, client_id, {"origin": "http://testserver", "cookie": "motion_session=invalid"})
+
+    def test_websocket_rejects_other_owner_and_unknown_lease(self):
+        client_id = self.open_client()
+        outsider = TestClient(self.mod.app)
+        self.addCleanup(outsider.close)
+        outsider.get("/api/health")
+        self.assert_socket_rejected(outsider, client_id, {"origin": "http://testserver"})
+        self.assert_socket_rejected(self.client, "f" * 32, {"origin": "http://testserver"})
+
+    def test_websocket_reconnect_within_grace_keeps_task_alive(self):
+        task = self.task()
+        client_id = self.open_client()
+        with self.client.websocket_connect(f"/api/client/{client_id}/watch", headers={"origin": "http://testserver"}):
+            self.wait_until(lambda: self.mod.clients[client_id].get("connected"))
+        self.wait_until(lambda: bool(self.mod.clients[client_id].get("closed")))
+        with self.client.websocket_connect(f"/api/client/{client_id}/watch", headers={"origin": "http://testserver"}):
+            self.wait_until(lambda: self.mod.clients[client_id].get("connected"))
+            self.assertNotIn("closed", self.mod.clients[client_id])
+            self.watch_once()
+            self.assertEqual(task["status"], "queued")
 
 
 if __name__ == "__main__":

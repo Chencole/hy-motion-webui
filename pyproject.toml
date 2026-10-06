@@ -3,7 +3,12 @@ name = "hy-motion-webui"
 version = "0.1.0"
 description = "A local-first visual interface for the official HY-Motion backend"
 requires-python = ">=3.11,<3.14"
-dependencies = ["fastapi==0.142.2", "uvicorn==0.54.0", "python-multipart==0.0.32"]
+dependencies = [
+    "fastapi==0.142.2",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+    "websockets>=15,<17",
+]
 
 [dependency-groups]
 dev = ["httpx==0.28.1"]

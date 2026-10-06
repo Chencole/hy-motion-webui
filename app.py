@@ -18,7 +18,7 @@ import time
 import uuid
 import zipfile
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -56,7 +56,7 @@ async def watch_clients(application):
         await asyncio.sleep(1)
         now = time.monotonic()
         with lock:
-            expired = [key for key, item in clients.items() if now - item["seen"] > CLIENT_TIMEOUT or (item.get("closed") and now - item["closed"] > CLOSE_GRACE)]
+            expired = [key for key, item in clients.items() if (not item.get("connected") and now - item["seen"] > CLIENT_TIMEOUT) or (item.get("closed") and now - item["closed"] > CLOSE_GRACE)]
             owners = {clients.pop(key)["owner"] for key in expired}
             remaining_owners = {item["owner"] for item in clients.values()}
         for owner in owners - remaining_owners:
@@ -278,9 +278,41 @@ def client_lifecycle(client_id: str, action: str, request: Request):
             if previous:
                 previous["closed"] = time.monotonic()
         else:
-            clients[client_id] = {"owner": request.state.owner, "seen": time.monotonic()}
+            clients[client_id] = {"owner": request.state.owner, "seen": time.monotonic(), "connected": bool(previous and previous.get("connected"))}
             client_seen = True
     return {"ok": True}
+
+
+@app.websocket("/api/client/{client_id}/watch")
+async def watch_connection(websocket: WebSocket, client_id: str):
+    from urllib.parse import urlparse
+    origin = websocket.headers.get("origin", "")
+    sid = websocket.cookies.get("motion_session", "")
+    if (urlparse(origin).netloc != websocket.headers.get("host")
+            or not re.fullmatch(r"[a-f0-9]{64}", sid)):
+        await websocket.close(code=1008)
+        return
+    owner = hashlib.sha256(sid.encode()).hexdigest()
+    with lock:
+        lease = clients.get(client_id)
+        valid = lease and lease["owner"] == owner
+    if not valid:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    with lock:
+        lease.update(connected=True, seen=time.monotonic())
+        lease.pop("closed", None)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        with lock:
+            current = clients.get(client_id)
+            if current:
+                current.update(connected=False, closed=time.monotonic())
 
 
 def snapshot(task):

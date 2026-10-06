@@ -1,8 +1,11 @@
 const $ = id => document.getElementById(id);
 const clientId = crypto.randomUUID();
 let heartbeatTimer;
-async function startClient(){await api(`/api/client/${clientId}/open`,{method:'POST'});heartbeatTimer=setInterval(()=>api(`/api/client/${clientId}/heartbeat`,{method:'POST'}).catch(()=>{}),10000);}
-window.addEventListener('pagehide',()=>{clearInterval(heartbeatTimer);navigator.sendBeacon(`/api/client/${clientId}/close`,new Blob([]));});
+let liveConnection, leaving=false;
+async function startClient(){leaving=false;await api(`/api/client/${clientId}/open`,{method:'POST'});clearInterval(heartbeatTimer);heartbeatTimer=setInterval(()=>api(`/api/client/${clientId}/heartbeat`,{method:'POST'}).catch(()=>{}),10000);if(!window.MOTION_SHOWCASE_CONFIG){liveConnection=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/client/${clientId}/watch`);liveConnection.onclose=()=>{if(!leaving)setTimeout(()=>startClient().catch(()=>{}),1000);};}}
+function closeClient(){leaving=true;clearInterval(heartbeatTimer);if(liveConnection)liveConnection.close();if(!window.MOTION_SHOWCASE_CONFIG)navigator.sendBeacon(`/api/client/${clientId}/close`,new Blob([]));}
+window.addEventListener('pagehide',closeClient);
+window.addEventListener('beforeunload',closeClient);
 window.addEventListener('pageshow',e=>{if(e.persisted)startClient();});
 let settings, selected, tasks = [], poller, uploadURL, previewKey;
 const labels = {queued:'排队中',running:'运行中',complete:'已完成',failed:'失败',cancelled:'已取消'};
