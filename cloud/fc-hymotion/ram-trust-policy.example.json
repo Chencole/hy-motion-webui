@@ -1,0 +1,1 @@
+{"Version":"1","Statement":[{"Effect":"Allow","Principal":{"Service":["fc.aliyuncs.com"]},"Action":"sts:AssumeRole"}]}

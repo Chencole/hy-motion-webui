@@ -1,0 +1,32 @@
+[Unit]
+Description=HY-Motion web interface and FC request relay
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/hymotion-webui/current/app.py
+
+[Service]
+Type=simple
+User=hymotion-webui
+Group=hymotion-webui
+WorkingDirectory=/opt/hymotion-webui/current
+EnvironmentFile=/etc/hymotion-webui/app.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/hymotion-webui/current/.venv/bin/python /opt/hymotion-webui/current/app.py --host 127.0.0.1 --port 18010 --root-path /motion
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryAccounting=true
+MemoryMax=256M
+TasksMax=64
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hymotion-webui
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

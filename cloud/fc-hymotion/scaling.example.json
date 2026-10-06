@@ -1,0 +1,6 @@
+{
+  "minInstances": 0,
+  "enableOnDemandScaling": true,
+  "scheduledPolicies": [],
+  "horizontalScalingPolicies": []
+}

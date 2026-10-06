@@ -1,0 +1,45 @@
+{
+  "functionName": "hymotion-official",
+  "description": "Official Tencent HY-Motion standard GPU inference; lazy model loading; private OSS results.",
+  "runtime": "custom-container",
+  "cpu": 8,
+  "memorySize": 65536,
+  "diskSize": 10240,
+  "gpuConfig": {"gpuType": "fc.gpu.ada.1", "gpuMemorySize": 49152},
+  "customContainerConfig": {
+    "image": "<your-acr-registry>/hymotion/hymotion-official:<version>",
+    "port": 9000,
+    "accelerationType": "Default",
+    "healthCheckConfig": {
+      "httpGetUrl": "/healthz", "initialDelaySeconds": 0,
+      "periodSeconds": 3, "timeoutSeconds": 2, "successThreshold": 1, "failureThreshold": 3
+    }
+  },
+  "timeout": 1800,
+  "instanceConcurrency": 1,
+  "internetAccess": true,
+  "disableOndemand": false,
+  "disableInjectCredentials": "Env",
+  "enableLongLiving": false,
+  "sessionAffinity": "NONE",
+  "role": "acs:ram::<account-id>:role/<fc-oss-role>",
+  "ossMountConfig": {
+    "mountPoints": [{
+      "bucketName": "<private-oss-bucket>",
+      "bucketPath": "/assets/hymotion",
+      "endpoint": "http://oss-cn-hangzhou-internal.aliyuncs.com",
+      "mountDir": "/mnt/hymotion-assets",
+      "readOnly": true
+    }]
+  },
+  "environmentVariables": {
+    "PORT": "9000",
+    "HYMOTION_OFFICIAL_SOURCE": "/opt/hymotion",
+    "HYMOTION_ASSETS_MOUNT": "/mnt/hymotion-assets",
+    "HYMOTION_OSS_BUCKET": "<private-oss-bucket>",
+    "HYMOTION_OSS_REGION": "cn-hangzhou",
+    "HYMOTION_RESULTS_PREFIX": "results/hymotion",
+    "HYMOTION_WORKER_TIMEOUT_SECONDS": "1740",
+    "HYMOTION_TRUST_FC_AUTH": "0"
+  }
+}

@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Motion Studio</title><link rel="stylesheet" href="/static/style.css"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Motion Studio</title><link rel="stylesheet" href="static/style.css"></head>
 <body>
 <aside class="sidebar">
-  <a class="brand" href="/"><span class="brand-icon">m</span><span id="brand-name">Motion Studio</span></a>
+  <a class="brand" href="./"><span class="brand-icon">m</span><span id="brand-name">Motion Studio</span></a>
   <div class="eyebrow">WORKSPACE / 动作工作台</div>
   <button class="nav active" id="new-task">＋ 创建动作</button>
   <div class="history-title">最近任务 <button id="refresh-history" aria-label="刷新任务">↻</button></div>
@@ -15,13 +15,23 @@
   <div class="workspace">
     <section class="card editor"><div class="section-title"><span class="number">01</span><h2 id="input-title">描述动作</h2></div>
       <form id="generate-form">
-        <div id="text-input"><label for="prompt">你希望角色做什么？</label><textarea id="prompt" rows="5" maxlength="3000" placeholder="A person walks forward, then stops and turns to the left.">A person walks forward.</textarea><p class="help">建议用简短英文描述身体动作。生成结果保留原样，复杂连招不保证准确。</p><div class="examples"><button type="button" data-prompt="A person walks forward.">向前行走</button><button type="button" data-prompt="A person slowly raises both arms overhead, then lowers them.">抬起双臂</button><button type="button" data-prompt="A person grips a sword with both hands and performs a downward slash.">双手下劈</button></div></div>
+        <div id="text-input">
+          <div class="mode-switch" role="group" aria-label="生成模式"><button type="button" id="mode-single" class="active" aria-pressed="true">单个生成</button><button type="button" id="mode-batch" aria-pressed="false">批量生成</button></div>
+          <div id="single-input"><label for="prompt">你希望角色做什么？</label><textarea id="prompt" rows="5" maxlength="3000" placeholder="A person walks forward, then stops and turns to the left.">A person walks forward.</textarea><p class="help">建议用简短英文描述身体动作。生成结果保留原样，复杂连招不保证准确。</p><div class="examples"><button type="button" data-prompt="A person walks forward.">向前行走</button><button type="button" data-prompt="A person slowly raises both arms overhead, then lowers them.">抬起双臂</button><button type="button" data-prompt="A person grips a sword with both hands and performs a downward slash.">双手下劈</button></div></div>
+          <div id="batch-input" hidden>
+            <label for="batch-prompts">动作描述 <small>一行一个动作</small></label><textarea id="batch-prompts" rows="6" maxlength="300000" placeholder="A person walks forward.&#10;A person slowly raises both arms overhead."></textarea>
+            <p class="help">空行会忽略。每条描述最多 3000 字符；所有动作使用下方的时长和步数。</p>
+            <div class="batch-parameters"><div><label for="batch-repeat">每条份数</label><input id="batch-repeat" type="number" min="1" max="10" step="1" value="1"></div><div><label for="batch-seed-mode">种子方式</label><select id="batch-seed-mode"><option value="increment">依次递增</option><option value="fixed">使用同一种子</option><option value="random">每项随机</option></select></div></div>
+            <p id="batch-input-summary" class="help" aria-live="polite">0 条描述 × 1 份 = 0 项，每批最多 100 项。</p>
+            <p id="batch-seed-help" class="help">从下方种子开始，按任务顺序逐项加 1。</p>
+          </div>
+        </div>
         <div id="video-input" hidden><label for="video">上传动作视频</label><div class="dropzone" id="dropzone"><span class="upload-symbol">↑</span><strong>选择视频或拖到这里</strong><span>MP4 / MOV / MKV / AVI / WebM · 最大 256 MB</span><input type="file" id="video" accept="video/mp4,video/quicktime,video/x-matroska,video/x-msvideo,video/webm" aria-label="选择动作视频"></div><p id="video-name" class="help">建议单人、全身可见、固定镜头的短片。</p><video id="input-video" controls playsinline hidden></video></div>
         <div class="divider"></div>
-        <div class="parameters" id="hy-params"><div><label for="seconds">时长 <small>秒</small></label><input id="seconds" type="number" value="4" min="0.5" max="12" step="0.5"></div><div><label for="seed">随机种子</label><input id="seed" type="number" value="42" min="0" max="2147483647" step="1"></div><div><label for="steps">生成步数</label><input id="steps" type="number" value="50" min="1" max="200" step="1"></div></div>
+        <div class="parameters" id="hy-params"><div><label for="seconds">时长 <small>秒</small></label><input id="seconds" type="number" value="4" min="0.5" max="12" step="0.5"></div><div><label for="seed">随机种子</label><input id="seed" type="number" value="42" min="0" max="4294967295" step="1"></div><div><label for="steps">生成步数</label><input id="steps" type="number" value="50" min="1" max="200" step="1"></div></div>
         <div class="parameters gem-params" id="gem-params" hidden><div><label for="start-frame">起始帧</label><input id="start-frame" type="number" value="0" min="0" max="100000" step="1"></div><div><label for="max-frames">处理帧数</label><input id="max-frames" type="number" value="120" min="1" max="900" step="1"></div></div>
-        <details class="settings"><summary>更多设置</summary><label for="threads">CPU 线程数</label><input id="threads" type="number" value="8" min="1" max="64" step="1"><p class="help">线程越多不一定越快。CPU 生成可能需要较长时间。</p><div id="gem-options" hidden><label class="check"><input id="image-features" type="checkbox" checked> 使用完整图像特征</label><label class="check"><input id="render-skeleton" type="checkbox" checked> 输出骨骼预览视频</label><p class="help">不含相机 SLAM、武器追踪或游戏角色重定向。输出是 SOMA 骨骼数据。</p></div></details>
-        <button class="primary" type="submit" id="generate">生成动作 <span>↗</span></button><p id="form-message" class="form-message" role="alert"></p>
+        <details class="settings" id="advanced-settings"><summary>更多设置</summary><div id="thread-settings"><label for="threads">CPU 线程数</label><input id="threads" type="number" value="8" min="1" max="64" step="1"><p class="help">线程越多不一定越快。CPU 生成可能需要较长时间。</p></div><div id="gem-options" hidden><label class="check"><input id="image-features" type="checkbox" checked> 使用完整图像特征</label><label class="check"><input id="render-skeleton" type="checkbox" checked> 输出骨骼预览视频</label><p class="help">不含相机 SLAM、武器追踪或游戏角色重定向。输出是 SOMA 骨骼数据。</p></div></details>
+        <button class="primary" type="submit" id="generate"><span id="generate-label">生成动作</span><span>↗</span></button><p id="form-message" class="form-message" role="alert"></p>
       </form>
     </section>
     <section class="card preview"><div class="section-title"><span class="number">02</span><h2>动作预览</h2><span id="task-state" class="quiet-pill">等待生成</span></div>
@@ -30,8 +40,16 @@
       <div id="job-progress" class="job-progress" hidden><div class="progress-heading"><span id="job-label"></span><span id="elapsed"></span></div><div class="progress-track"><div id="progress-bar"></div></div><p id="job-message"></p><button class="secondary danger" id="cancel" hidden>取消当前任务</button></div>
     </section>
   </div>
+  <section class="card batch-results" id="batch-panel" aria-labelledby="batch-heading" hidden>
+    <div class="section-title"><span class="number">B</span><h2 id="batch-heading">批量任务</h2><span id="batch-state" class="quiet-pill">等待提交</span></div>
+    <div class="batch-toolbar"><div class="batch-picker-field"><label for="batch-picker">查看批次</label><select id="batch-picker"><option value="">尚无批量任务</option></select></div><button type="button" class="secondary" id="refresh-batches">刷新批次</button><button type="button" class="secondary danger" id="cancel-batch" hidden>取消未完成项</button><a class="secondary" id="download-batch" hidden>下载已完成项 ZIP ↓</a></div>
+    <div id="batch-progress-area" hidden><div class="progress-heading"><span id="batch-progress-label"></span><span id="batch-counts"></span></div><progress id="batch-progress" value="0" max="1" aria-label="批量任务完成进度"></progress></div>
+    <p class="help" id="batch-empty">提交后可在这里查看每一项的状态、种子和结果。</p>
+    <div class="batch-table-wrap" id="batch-table-wrap" hidden><table class="batch-table"><thead><tr><th scope="col">序号</th><th scope="col">动作描述</th><th scope="col">种子</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody id="batch-rows"></tbody></table></div>
+    <p id="batch-message" class="form-message" role="alert"></p>
+  </section>
   <section class="card results"><div class="section-title"><span class="number">03</span><h2>结果文件</h2><a id="download-all" class="secondary" hidden>下载全部 ZIP ↓</a></div><div id="files"><p class="muted">每次生成保存在独立目录，不覆盖之前的动作。</p></div><details id="logs-details"><summary>运行日志</summary><pre id="logs">任务开始后显示模型的实时日志。</pre></details></section>
   <footer><span>可视化封装 · 非模型官方产品</span><a id="repo-link" target="_blank" rel="noreferrer">源码和本机启动 ↗</a><span id="footer-credit"></span></footer>
 </main>
-<script src="/showcase-config.js"></script><script src="/static/app.js"></script>
+<script src="showcase-config.js"></script><script src="static/app.js"></script>
 </body></html>

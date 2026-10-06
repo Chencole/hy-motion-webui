@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import sys
 
 APP_ROOT = Path(__file__).resolve().parent
 MODEL_NAME = 'Tencent HY-Motion-1.0 (standard, CPU)'
@@ -63,6 +64,9 @@ def backend_python(root: Path) -> Path:
     return root / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 
 def inspect_backend() -> dict:
+    if os.environ.get('MOTION_BACKEND', 'local') == 'fc':
+        from remote_client import inspect_remote
+        return inspect_remote()
     root = backend_root()
     python = backend_python(root)
     missing = []
@@ -98,15 +102,42 @@ def validate_config(config: dict) -> dict:
     if not isinstance(config, dict):
         raise ValueError('Configuration must be an object')
     prompt = config.get('prompt')
-    if not isinstance(prompt, str) or not prompt.strip() or '\0' in prompt:
+    if not isinstance(prompt, str) or not prompt.strip() or '\0' in prompt or len(prompt) > 4000:
         raise ValueError('prompt must contain text without NUL')
     seconds = config.get('seconds', 4.0)
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 < seconds <= 12:
         raise ValueError('seconds must be in (0, 12]')
-    return dict(prompt=prompt, seconds=float(seconds),
+    result = dict(prompt=prompt, seconds=float(seconds),
                 seed=_integer(config, 'seed', 42),
                 steps=_integer(config, 'steps', 50, positive=True),
                 threads=_integer(config, 'threads', 8, positive=True))
+    if not 0 <= result['seed'] <= 2**32 - 1:
+        raise ValueError('seed must be between 0 and 4294967295')
+    if result['steps'] > 200 or result['threads'] > 64:
+        raise ValueError('steps must be at most 200; threads at most 64')
+    return result
+
+
+def command_for(job_dir: Path, parameters: dict, state: dict) -> list[str]:
+    if os.environ.get('MOTION_BACKEND', 'local') == 'fc':
+        return [sys.executable, '-u', str(APP_ROOT / 'remote_client.py'),
+                '--job-id', job_dir.name, '--request', str(job_dir / 'request.json'),
+                '--output', str(job_dir / 'output')]
+    return [state['python'], '-u', str(Path(state['root']) / 'src/hy_motion_cpu/cli.py'),
+            '--prompt', parameters['prompt'], '--seconds', str(parameters['seconds']),
+            '--seed', str(parameters['seed']), '--steps', str(parameters['steps']),
+            '--threads', str(parameters['threads']), '--output', str(job_dir / 'output')]
+
+
+def resume_command(job_dir: Path, config: dict) -> list[str]:
+    parameters = validate_config(config)
+    stored = json.loads((job_dir / 'request.json').read_text(encoding='utf-8'))
+    if stored != parameters:
+        raise ValueError('Saved request differs from queued parameters; refusing to run')
+    state = inspect_backend()
+    if not state['ready']:
+        raise RuntimeError(state['message'])
+    return command_for(job_dir, parameters, state)
 
 def build_command(job_dir: Path, config: dict, input_path: Path | None = None) -> list[str]:
     if input_path is not None:
@@ -120,7 +151,4 @@ def build_command(job_dir: Path, config: dict, input_path: Path | None = None) -
     request_path = job_dir / 'request.json'
     with request_path.open('x', encoding='utf-8') as stream:
         json.dump(parameters, stream, ensure_ascii=False, indent=2, allow_nan=False)
-    return [state['python'], '-u', str(Path(state['root']) / 'src/hy_motion_cpu/cli.py'),
-            '--prompt', parameters['prompt'], '--seconds', str(parameters['seconds']),
-            '--seed', str(parameters['seed']), '--steps', str(parameters['steps']),
-            '--threads', str(parameters['threads']), '--output', str(job_dir / 'output')]
+    return command_for(job_dir, parameters, state)

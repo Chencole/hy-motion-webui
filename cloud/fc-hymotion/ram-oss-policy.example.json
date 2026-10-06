@@ -1,0 +1,21 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:ListObjects"],
+      "Resource": "acs:oss:*:*:<private-oss-bucket>",
+      "Condition": {"StringLike": {"oss:Prefix": ["assets/hymotion/*", "results/hymotion/*"]}}
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject"],
+      "Resource": "acs:oss:*:*:<private-oss-bucket>/assets/hymotion/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject", "oss:PutObject"],
+      "Resource": "acs:oss:*:*:<private-oss-bucket>/results/hymotion/*"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "triggerName": "hymotion-private-http",
+  "triggerType": "http",
+  "qualifier": "LATEST",
+  "description": "Signed FC HTTP requests only; never enable anonymous access.",
+  "triggerConfig": "{\"authType\":\"function\",\"methods\":[\"GET\",\"POST\"],\"disableURLInternet\":false}"
+}

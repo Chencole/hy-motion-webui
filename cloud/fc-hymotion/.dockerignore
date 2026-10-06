@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!contract.py
+!storage.py
+!service.py
+!worker.py
