@@ -1,6 +1,8 @@
 # 墨格服务器部署
 
-独立服务在 `127.0.0.1:18010` 运行普通 FastAPI 页面，GPU 请求交给 FC。生产墨格的 Docker、数据库和 `/api/` 路由不变。
+通过 `http://120.24.92.122/motion/` 直接使用服务器 IP 访问，不绑定域名。独立服务在 `127.0.0.1:18010` 运行普通 FastAPI 页面，GPU 请求交给 FC。生产墨格的 Docker、数据库和已有 `/api/` 路由不变。
+
+当前入口使用 HTTP，网页登录信息和结果传输不加密；这是当前 IP 入口的限制。阿里云调用密钥仍只保存在服务器，服务端通过 HTTPS 调用 FC。
 
 ## 目录与安装
 
@@ -12,7 +14,7 @@
 - `/opt/uv/python/`：uv 集中管理的 Python；`python3.11` 命令在 `/usr/local/bin`，不替换 `python` 或 `python3`。
 - `/etc/profile.d/uv-managed-python.sh`：持久配置 uv 的 Python 目录，新登录终端自动读取。
 
-先把此目录复制到服务器私有准备目录，运行 `bash bootstrap.sh`。脚本检查并复用已有 uv，创建低权限账号、目录和 systemd 单元，但不启动或启用服务。预先安全放置的 `login.txt` 采用 `username=hymotion`、`password=...`、`url=https://mogestudio.com/motion/` 格式；脚本只把密码的 SHA256 放入服务配置。
+先把此目录复制到服务器私有准备目录，运行 `bash bootstrap.sh`。脚本检查并复用已有 uv，创建低权限账号、目录和 systemd 单元，但不启动或启用服务。预先安全放置的 `login.txt` 采用 `username=hymotion`、`password=...`、`url=http://120.24.92.122/motion/` 格式；脚本只把密码的 SHA256 放入服务配置。
 
 不要把云访问密钥或登录密码打包进代码。FC 未配置时，应用仍可访问且生成必须保持禁用；后续按云部署输出填写 endpoint、OSS 和最小权限凭据。
 
@@ -20,7 +22,7 @@
 
 在 Windows 运行 `deploy/moge/package.ps1`，只打包 `app.py`、`backend.py`、`remote_client.py`、`app_config.json`、`pyproject.toml`、`uv.lock`、`static/`，并输出归档路径和 SHA256。测试通过后安全复制归档，在服务器运行 `bash deploy.sh /absolute/path/release.tar.gz <sha256>`。脚本校验归档、建立隔离环境、原子切换版本并测试认证与健康接口，失败回滚当前版本。
 
-应用成功运行后执行 `bash install-route.sh`。脚本只写主站已包含的 `extension/mogestudio.com/hymotion.conf`，发布 `/motion/`；先建立时间备份，`nginx -t` 成功才 reload，验证失败恢复原文件。后台域的配置不修改。`/motion/` 前缀由 Nginx 剥除，再由应用的 `--root-path /motion` 还原外部 URL。
+应用成功运行后执行 `bash install-route.sh`。脚本在已有 IP 站点 `120.24.92.122.conf` 的 extension 目录写入专用 `hymotion.conf`，发布 `/motion/`。旧域名入口若存在，只有内容与此应用原来的代理配置一致时才移除；内容发生变化则停止，避免影响其他配置。先建立时间备份，`nginx -t` 成功才 reload，验证失败恢复原文件。已有 IP `/api/media` 路由、主站和后台域的其他配置不修改，不新增监听端口。`/motion/` 前缀由 Nginx 剥除，再由应用的 `--root-path /motion` 还原外部 URL。
 
 服务限制为一个进程、256 MiB 内存；只有持久目录可写。用 `systemctl status hymotion-webui` 和 `journalctl -u hymotion-webui` 查看服务。配置修改后只重启 `hymotion-webui`。
 
@@ -44,7 +46,7 @@
 Get-Content -LiteralPath C:\Users\cheny\Downloads\hymotion-server-settings.json -Raw | ssh moge-production '/opt/hymotion-webui/current/.venv/bin/python /opt/hymotion-webui/deploy/configure-cloud.py'
 ```
 
-待权重上传、函数挂载及权限全部核验后，若部署代码与本机哈希一致，只需 `systemctl restart hymotion-webui` 读取新配置，再执行 `healthcheck.py https://mogestudio.com/motion/api/health` 和读取认证后的 `/motion/api/status`。真实 GPU 调用属于独立验证步骤，不能把配置就绪当成推理已通过。
+待权重上传、函数挂载及权限全部核验后，若部署代码与本机哈希一致，只需 `systemctl restart hymotion-webui` 读取新配置，再执行 `healthcheck.py http://120.24.92.122/motion/api/health` 和读取认证后的 `/motion/api/status`。真实 GPU 调用属于独立验证步骤，不能把配置就绪当成推理已通过。
 
 ## 更新与卸载
 
