@@ -15,7 +15,7 @@ The UI adds task orchestration without changing model inference, motion data or 
 | This community UI | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | Web interface, CLI bridge and optional staged GPU adapter |
 | Community UI showcase | [Hugging Face Space](https://huggingface.co/spaces/coooooooai/hy-motion-webui) | Free static demonstration |
 
-**The staged inference scripts are community adapters, not an official Tencent CPU/GPU distribution.** `deploy/windows-gpu/backend` provides CPU text encoding, CPU/CUDA motion generation, pinned dependencies and installation instructions. Existing CPU backends remain supported. This UI is not an official Tencent product. The current integration is based on official source commit [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229).
+**The staged inference scripts are community adapters, not an official Tencent CPU/GPU distribution.** `deploy/windows-gpu/backend` provides CPU or CUDA module-offloaded text encoding, CPU/CUDA motion generation, pinned dependencies and installation instructions. Existing CPU backends remain supported. This UI is not an official Tencent product. The current integration is based on official source commit [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229).
 
 Hugging Face hosts a static interface only. It provides no online inference and does not connect to a visitor's computer. You can inspect both single and batch modes, but cannot submit jobs there. Actual generation requires your own local or configured hosted service.
 
