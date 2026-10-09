@@ -127,13 +127,14 @@ class GpuCliTests(unittest.TestCase):
             return cli.main()
 
     def test_cuda_preflight_failure_returns_exact_code_and_never_encodes(self):
-        with tempfile.TemporaryDirectory() as folder, \
-                patch.object(cli.subprocess, 'run', side_effect=subprocess.CalledProcessError(17, 'preflight')) as run:
-            root = Path(folder)
-            self.assertEqual(self.invoke(root), 17)
-            run.assert_called_once_with([sys.executable, '-c', cli.CUDA_PREFLIGHT, 'cuda:0'], cwd=root, check=True)
-            self.assertFalse((root / 'output').exists())
-            self.assertFalse((root / 'cache').exists())
+        for device, extra in (('cuda:0', ()), ('cpu', ('--text-device', 'cuda-offload'))):
+            with self.subTest(device=device), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(cli.subprocess, 'run', side_effect=subprocess.CalledProcessError(17, 'preflight')) as run:
+                root = Path(folder)
+                self.assertEqual(self.invoke(root, device=device, extra=extra), 17)
+                run.assert_called_once_with([sys.executable, '-c', cli.CUDA_PREFLIGHT, 'cuda:0'], cwd=root, check=True)
+                self.assertFalse((root / 'output').exists())
+                self.assertFalse((root / 'cache').exists())
 
     def test_cuda_preflight_finishes_before_encoding_and_sampling(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(cli.subprocess, 'run') as run:
@@ -145,7 +146,10 @@ class GpuCliTests(unittest.TestCase):
             for command in commands[1:]:
                 self.assertEqual(command[command.index('--prompt') + 1], self.prompt)
                 self.assertEqual(command[command.index('--device') + 1], 'cuda:0')
+                self.assertEqual(command[command.index('--text-device') + 1], 'cuda-offload')
                 self.assertEqual(command[command.index('--threads') + 1], '7')
+                expected_cache = root / 'cache/text_features' / (hashlib.sha256(self.prompt.encode()).hexdigest() + '.cuda-offload-v1.pt')
+                self.assertEqual(command[command.index('--cache-path') + 1], str(expected_cache))
             generate = commands[-1]
             for key, value in (('--duration', '2.5'), ('--seed', '123'), ('--steps', '9'),
                                ('--output-dir', str(root / 'output'))):
@@ -156,7 +160,7 @@ class GpuCliTests(unittest.TestCase):
     def test_cache_hit_still_preflights_and_refresh_reencodes(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            cache = root / 'cache/text_features' / (hashlib.sha256(self.prompt.encode()).hexdigest() + '.pt')
+            cache = root / 'cache/text_features' / (hashlib.sha256(self.prompt.encode()).hexdigest() + '.cuda-offload-v1.pt')
             cache.parent.mkdir(parents=True)
             cache.write_bytes(b'mocked cache; never loaded')
             for extra, stages in (((), ['generate']), (('--refresh-text',), ['encode', 'generate'])):
@@ -171,7 +175,48 @@ class GpuCliTests(unittest.TestCase):
             commands = [call.args[0] for call in run.call_args_list]
             self.assertEqual([command[2] for command in commands], ['encode', 'generate'])
             self.assertTrue(all('-c' not in command for command in commands))
-            self.assertTrue(all(command[-2:] == ['--device', 'cpu'] for command in commands))
+            self.assertTrue(all(command[command.index('--device') + 1] == 'cpu' for command in commands))
+            self.assertTrue(all(command[-2:] == ['--text-device', 'cpu'] for command in commands))
+
+    def test_cpu_cache_is_reused_only_for_explicit_cpu_text(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cache = root / 'cache/text_features' / (hashlib.sha256(self.prompt.encode()).hexdigest() + '.pt')
+            cache.parent.mkdir(parents=True)
+            cache.write_bytes(b'old CPU cache; never loaded')
+            with patch.object(cli.subprocess, 'run') as run:
+                self.assertEqual(self.invoke(root), 0)
+                self.assertEqual([call.args[0][2] for call in run.call_args_list[1:]], ['encode', 'generate'])
+            with patch.object(cli.subprocess, 'run') as run:
+                self.assertEqual(self.invoke(root, extra=('--text-device', 'cpu')), 0)
+                self.assertEqual(run.call_args_list[0].args[0][1], '-c')
+                self.assertEqual(run.call_count, 2)
+                command = run.call_args_list[-1].args[0]
+                self.assertEqual(command[2], 'generate')
+                self.assertEqual(command[command.index('--cache-path') + 1], str(cache))
+                self.assertEqual(command[-2:], ['--text-device', 'cpu'])
+
+    def test_cpu_motion_can_use_cuda_offloaded_text(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(cli.subprocess, 'run') as run:
+            self.assertEqual(self.invoke(Path(folder), device='cpu', extra=('--text-device', 'cuda-offload')), 0)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertEqual(commands[0], [sys.executable, '-c', cli.CUDA_PREFLIGHT, 'cuda:0'])
+            for command in commands[1:]:
+                self.assertEqual(command[command.index('--device') + 1], 'cpu')
+                self.assertEqual(command[command.index('--text-device') + 1], 'cuda-offload')
+
+    def test_legacy_cpu_invocation_needs_no_new_flag_and_retains_cache_path(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(cli.subprocess, 'run') as run:
+            root = Path(folder)
+            with patch.object(cli, 'ROOT', root), \
+                    patch.object(sys, 'argv', ['hymotion', '--prompt', self.prompt, '--output', str(root / 'output')]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(), 0)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertEqual([command[2] for command in commands], ['encode', 'generate'])
+            expected_cache = root / 'cache/text_features' / (hashlib.sha256(self.prompt.encode()).hexdigest() + '.pt')
+            self.assertTrue(all(command[command.index('--cache-path') + 1] == str(expected_cache) for command in commands))
+            self.assertTrue(all(command[-2:] == ['--text-device', 'cpu'] for command in commands))
 
     def test_check_delegates_once_and_preserves_exit_code(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -185,6 +230,16 @@ class GpuCliTests(unittest.TestCase):
                                           '--device', 'cuda:0'], cwd=root)
             run.assert_not_called()
 
+    def test_cpu_motion_check_verifies_cuda_when_text_is_offloaded(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(cli, 'ROOT', Path(folder)), \
+                patch.object(sys, 'argv', ['hymotion', '--check', '--device', 'cpu', '--text-device', 'cuda-offload']), \
+                patch.object(cli.subprocess, 'call', return_value=7) as call, \
+                patch.object(cli.subprocess, 'run') as run:
+            self.assertEqual(cli.main(), 7)
+            self.assertEqual(call.call_args.args[0][-2:], ['--device', 'cuda:0'])
+            run.assert_not_called()
+
     def test_stage_failure_preserves_exit_code_and_stops_without_cpu_retry(self):
         for side_effects, code, count in (([None, subprocess.CalledProcessError(5, 'encode')], 5, 2),
                                           ([None, None, subprocess.CalledProcessError(9, 'generate')], 9, 3)):
@@ -192,7 +247,9 @@ class GpuCliTests(unittest.TestCase):
                     patch.object(cli.subprocess, 'run', side_effect=side_effects) as run:
                 self.assertEqual(self.invoke(Path(folder)), code)
                 self.assertEqual(run.call_count, count)
-                self.assertTrue(all(call.args[0][-2:] == ['--device', 'cuda:0']
+                self.assertTrue(all(call.args[0][call.args[0].index('--device') + 1] == 'cuda:0'
+                                    for call in run.call_args_list[1:]))
+                self.assertTrue(all(call.args[0][-2:] == ['--text-device', 'cuda-offload']
                                     for call in run.call_args_list[1:]))
 
     def test_preflight_code_fails_before_allocation_if_cuda_unavailable_or_initialization_fails(self):

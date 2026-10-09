@@ -69,6 +69,13 @@ def configured_device() -> str:
         raise ValueError('MOTION_DEVICE must be cpu or cuda:0')
     return device
 
+
+def configured_text_device(device: str) -> str:
+    text_device = os.environ.get('MOTION_TEXT_DEVICE', 'cuda-offload' if device == 'cuda:0' else 'cpu')
+    if text_device not in ('cpu', 'cuda-offload'):
+        raise ValueError('MOTION_TEXT_DEVICE must be cpu or cuda-offload')
+    return text_device
+
 def inspect_backend() -> dict:
     if os.environ.get('MOTION_BACKEND', 'local') == 'fc':
         from remote_client import inspect_remote
@@ -77,12 +84,13 @@ def inspect_backend() -> dict:
     python = backend_python(root)
     try:
         device = configured_device()
+        text_device = configured_text_device(device)
     except ValueError as error:
         return {
             'ready': False, 'message': str(error), 'root': str(root), 'python': str(python),
             'model': 'Tencent HY-Motion-1.0 (standard, device configuration invalid)',
             'device': None, 'requested_device': os.environ.get('MOTION_DEVICE'),
-            'text_device': 'cpu', 'limitations': list(LIMITATIONS),
+            'text_device': None, 'requested_text_device': os.environ.get('MOTION_TEXT_DEVICE'), 'limitations': list(LIMITATIONS),
             'missing': [str(error)], 'inference_verified': False,
         }
     missing = []
@@ -98,15 +106,18 @@ def inspect_backend() -> dict:
     config_text = venv_config.read_text(encoding='utf-8') if venv_config.is_file() else ''
     if not re.search(r'^version(?:_info)?\s*=\s*3\.11\.', config_text, re.MULTILINE):
         missing.append('compatible Python 3.11 environment')
-    if device == 'cuda:0':
+    if device == 'cuda:0' or text_device == 'cuda-offload':
         try:
             adapter = json.loads((root / 'runtime-adapter.json').read_text(encoding='utf-8'))
         except (OSError, ValueError):
             adapter = {}
         devices = adapter.get('motion_devices') if isinstance(adapter, dict) else None
+        text_devices = adapter.get('text_devices') if isinstance(adapter, dict) else None
         if (not isinstance(adapter, dict) or type(adapter.get('schema')) is not int
                 or adapter['schema'] != 1 or not isinstance(devices, list)
-                or not all(isinstance(value, str) for value in devices) or device not in devices):
+                or not all(isinstance(value, str) for value in devices) or device not in devices
+                or (text_device == 'cuda-offload' and (not isinstance(text_devices, list)
+                    or not all(isinstance(value, str) for value in text_devices) or text_device not in text_devices))):
             missing.append('staged CUDA adapter; see deploy/windows-gpu/README.md')
     ready = not missing
     message = ('Official model files and CPU environment found; full inference is not yet verified.' if ready
@@ -114,8 +125,8 @@ def inspect_backend() -> dict:
     limitations = list(LIMITATIONS)
     model = MODEL_NAME
     if device == 'cuda:0':
-        model = 'Tencent HY-Motion-1.0 (standard, CUDA motion / CPU text)'
-        limitations[0] = 'Text encoding uses CPU and substantial RAM; motion sampling uses CUDA. Run only one GPU model at a time on an 8 GB card.'
+        model = 'Tencent HY-Motion-1.0 (standard, CUDA motion / ' + ('CUDA text offload)' if text_device == 'cuda-offload' else 'CPU text)')
+        limitations[0] = 'Text weights remain in RAM; CUDA text offload executes one module at a time before motion sampling. Run only one GPU model at a time on an 8 GB card.' if text_device == 'cuda-offload' else 'Text encoding uses CPU and substantial RAM; motion sampling uses CUDA. CPU BF16 can be very slow without native CPU BF16 support.'
         limitations[1] = 'File inspection does not verify CUDA or inference; run the GPU check and a real generation after installation.'
         if ready:
             message = 'Official model files and staged CUDA adapter found; GPU inference requires runtime verification.'
@@ -124,7 +135,7 @@ def inspect_backend() -> dict:
         'message': message,
         'root': str(root), 'python': str(python), 'model': model, 'device': device,
         'requested_device': device,
-        'text_device': 'cpu', 'limitations': limitations, 'missing': missing,
+        'text_device': text_device, 'requested_text_device': text_device, 'limitations': limitations, 'missing': missing,
         'inference_verified': False,
     }
 
@@ -163,8 +174,12 @@ def command_for(job_dir: Path, parameters: dict, state: dict) -> list[str]:
             '--prompt', parameters['prompt'], '--seconds', str(parameters['seconds']),
             '--seed', str(parameters['seed']), '--steps', str(parameters['steps']),
             '--threads', str(parameters['threads']), '--output', str(job_dir / 'output')]
-    if configured_device() == 'cuda:0':
+    device = configured_device()
+    text_device = configured_text_device(device)
+    if device == 'cuda:0':
         command += ['--device', 'cuda:0']
+    if device == 'cuda:0' or text_device != 'cpu':
+        command += ['--text-device', text_device]
     return command
 
 

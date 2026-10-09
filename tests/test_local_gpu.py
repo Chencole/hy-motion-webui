@@ -31,7 +31,7 @@ class LocalGpuTests(unittest.TestCase):
         prompt = 'walk; $(echo no) & more'
         with patch.dict(os.environ, {'MOTION_DEVICE': 'cuda:0', 'MOTION_BACKEND': 'local'}):
             command = backend.command_for(Path('job'), backend.validate_config({'prompt': prompt}), {'python': 'python', 'root': 'model'})
-        self.assertEqual(command[-2:], ['--device', 'cuda:0'])
+        self.assertEqual(command[-4:], ['--device', 'cuda:0', '--text-device', 'cuda-offload'])
         self.assertIn(prompt, command)
 
     def test_legacy_backend_not_reported_as_gpu_capable(self):
@@ -40,7 +40,19 @@ class LocalGpuTests(unittest.TestCase):
             self.assertFalse(state['ready'])
             self.assertTrue(any('staged CUDA adapter' in name for name in state['missing']))
             self.assertEqual(state['device'], 'cuda:0')
-            self.assertIn('CPU text', state['model'])
+            self.assertIn('CUDA text offload', state['model'])
+
+    def test_explicit_cpu_text_option_reaches_gpu_cli(self):
+        with patch.dict(os.environ, {'MOTION_DEVICE': 'cuda:0', 'MOTION_TEXT_DEVICE': 'cpu'}):
+            command = backend.command_for(Path('job'), backend.validate_config({'prompt': 'walk'}), {'python': 'python', 'root': 'model'})
+        self.assertEqual(command[-4:], ['--device', 'cuda:0', '--text-device', 'cpu'])
+
+    def test_invalid_text_device_is_not_ready(self):
+        with patch.dict(os.environ, {'MOTION_DEVICE': 'cuda:0', 'MOTION_TEXT_DEVICE': 'invalid'}):
+            state = backend.inspect_backend()
+        self.assertFalse(state['ready'])
+        self.assertIsNone(state['text_device'])
+        self.assertIn('MOTION_TEXT_DEVICE', state['message'])
 
     def test_invalid_device_is_a_complete_not_ready_state(self):
         with patch.dict(os.environ, {'MOTION_DEVICE': 'cuda:99'}):
@@ -55,7 +67,9 @@ class LocalGpuTests(unittest.TestCase):
         cases = ('null', '[]', '{broken', '{"schema":1,"motion_devices":null}',
                  '{"schema":1,"motion_devices":"cuda:0"}',
                  '{"schema":true,"motion_devices":["cuda:0"]}',
-                 '{"schema":1,"motion_devices":["cuda:0",42]}')
+                 '{"schema":1,"motion_devices":["cuda:0",42]}',
+                 '{"schema":1,"motion_devices":["cuda:0"],"text_devices":42}',
+                 '{"schema":1,"motion_devices":["cuda:0"],"text_devices":"cuda-offload"}')
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
                 'MOTION_DEVICE': 'cuda:0', 'MOTION_BACKEND_ROOT': folder}):
             marker = Path(folder) / 'runtime-adapter.json'
@@ -79,7 +93,7 @@ class LocalGpuTests(unittest.TestCase):
             self.assertTrue(cpu['ready'])
             self.assertEqual(cpu['device'], 'cpu')
             self.assertFalse(cpu['inference_verified'])
-            (root / 'runtime-adapter.json').write_text('{"schema":1,"motion_devices":["cpu","cuda:0"]}', encoding='utf-8')
+            (root / 'runtime-adapter.json').write_text('{"schema":1,"motion_devices":["cpu","cuda:0"],"text_devices":["cpu","cuda-offload"]}', encoding='utf-8')
             with patch.dict(os.environ, {'MOTION_DEVICE': 'cuda:0'}):
                 cuda = backend.inspect_backend()
             self.assertTrue(cuda['ready'])
@@ -123,7 +137,7 @@ class LocalGpuTests(unittest.TestCase):
         self.assertTrue(all(value.device == 'cpu' for value in features.values()))
 
     def test_generation_failure_keeps_requested_and_actual_device_separate(self):
-        args = SimpleNamespace(stage='generate', device='cuda:0', threads=1)
+        args = SimpleNamespace(stage='generate', device='cuda:0', text_device='cuda-offload', threads=1)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             args.repo, args.output_dir = root / 'repo', root / 'output'

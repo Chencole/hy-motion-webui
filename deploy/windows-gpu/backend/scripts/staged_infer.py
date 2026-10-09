@@ -5,7 +5,7 @@
 
 Core dependencies: torch, transformers==4.53.3, accelerate, safetensors,
 huggingface_hub, PyYAML, numpy, scipy, einops, torchdiffeq==0.2.5, fbxsdkpy.
-Text encoding stays on CPU; --device cuda:0 runs motion sampling on NVIDIA GPU.
+Text encoding supports CPU or original-precision CUDA module offload; motion supports CPU/CUDA.
 No Gradio, bitsandbytes, alternate model, IK, or motion scoring is used by this adapter.
 All model files must already exist locally. Repository source is not edited.
 """
@@ -47,8 +47,11 @@ def parse_args():
     parser.add_argument("--steps", type=int, default=50, help="50 for normal inference; fewer only for smoke tests")
     parser.add_argument("--threads", type=int, default=8, help="CPU worker threads")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu",
-                        help="Motion device; text encoding always uses CPU")
+                        help="Motion sampling device")
+    parser.add_argument("--text-device", choices=("cpu", "cuda-offload"), default=None,
+                        help="Text execution: default CUDA module offload for CUDA motion, otherwise CPU")
     args = parser.parse_args()
+    args.text_device = args.text_device or ("cuda-offload" if args.device == "cuda:0" else "cpu")
     args.repo = args.repo.resolve()
     args.model_path = (args.model_path or args.repo / "ckpts/tencent/HY-Motion-1.0").resolve()
     args.qwen_path = (args.qwen_path or args.repo / "ckpts/Qwen3-8B").resolve()
@@ -110,6 +113,7 @@ def validate_features(features, torch):
 
 
 def encode(args, metadata):
+    started = time.perf_counter()
     import torch
     from hymotion.network.text_encoders import text_encoder as official_text
 
@@ -123,20 +127,63 @@ def encode(args, metadata):
     if not prompt.strip():
         raise ValueError("Prompt must not be empty")
     metadata.update(prompt=prompt, max_length_llm=128, qwen_path=str(args.qwen_path), clip_path=str(args.clip_path))
-    print("Loading official Qwen3-8B BF16 and CLIP on CPU...", flush=True)
+    print("Loading official Qwen3-8B BF16 and CLIP with CPU-backed weights...", flush=True)
     encoder = official_text.HYTextModel(llm_type="qwen3", max_length_llm=128, sentence_emb_type="clipl")
     encoder.eval()
     if next(encoder.llm_text_encoder.parameters()).dtype != torch.bfloat16:
         raise RuntimeError("Official Qwen encoder was not loaded in BF16")
-    with torch.inference_mode():
-        vec, ctxt, length = encoder.encode([prompt])
+    observed = {}
+    handles = []
+    original_get_device = official_text.get_module_device
+    try:
+        if args.text_device == "cuda-offload":
+            from accelerate import cpu_offload
+            device = motion_device(torch, "cuda:0")
+            torch.cuda.reset_peak_memory_stats(device)
+            metadata.update(gpu_name=torch.cuda.get_device_name(device), cuda_version=torch.version.cuda,
+                            text_weight_storage="cpu", text_execution="cuda-module-offload")
+            # Keep original BF16/FP32 weights. Accelerate brings each called
+            # module to CUDA for its forward, then releases its GPU weights.
+            cpu_offload(encoder.llm_text_encoder, execution_device=device)
+            cpu_offload(encoder.sentence_emb_text_encoder, execution_device=device)
+            # Meta placeholders look like CPU to upstream's device helper.
+            # Keep CLIP inputs, masks, and intermediate tensors on CUDA.
+            official_text.get_module_device = lambda module: device if module is encoder else original_get_device(module)
+            def observe(name):
+                def hook(module, inputs, output):
+                    observed[name] = tensor_info(output)
+                return hook
+            handles.append(encoder.llm_text_encoder.model.embed_tokens.register_forward_hook(observe("qwen_embedding")))
+            handles.append(encoder.sentence_emb_text_encoder.text_model.embeddings.token_embedding.register_forward_hook(observe("clip_embedding")))
+            print("Encoding with original Qwen BF16 / CLIP FP32, module-by-module on CUDA...", flush=True)
+        else:
+            metadata.update(text_weight_storage="cpu", text_execution="cpu")
+            print("Encoding on CPU...", flush=True)
+        with torch.inference_mode():
+            vec, ctxt, length = encoder.encode([prompt])
+        if args.text_device == "cuda-offload":
+            torch.cuda.synchronize(device)
+            if set(observed) != {"qwen_embedding", "clip_embedding"} or any(
+                    info["device"] != "cuda:0" for info in observed.values()):
+                raise RuntimeError("Text CUDA module execution was not observed")
+            if any(value.device != device for value in (vec, ctxt, length)):
+                raise RuntimeError("Text outputs did not remain on the requested CUDA device")
+            metadata.update(text_module_outputs=observed,
+                            cuda_peak_allocated_bytes=torch.cuda.max_memory_allocated(device),
+                            cuda_peak_reserved_bytes=torch.cuda.max_memory_reserved(device))
+    finally:
+        official_text.get_module_device = original_get_device
+        for handle in handles:
+            handle.remove()
     features = {key: value.detach().cpu().contiguous() for key, value in zip(FEATURE_KEYS, (vec, ctxt, length))}
     validate_features(features, torch)
     metadata["features"] = {key: tensor_info(value) for key, value in features.items()}
-    metadata["device"] = "cpu"
+    metadata["device"] = "cuda:0" if args.text_device == "cuda-offload" else "cpu"
+    metadata["text_device"] = metadata["device"]
     metadata["qwen_dtype"] = str(next(encoder.llm_text_encoder.parameters()).dtype)
     metadata["clip_dtype"] = str(next(encoder.sentence_emb_text_encoder.parameters()).dtype)
     metadata["cache_schema"] = 1
+    metadata["elapsed_seconds"] = round(time.perf_counter() - started, 3)
     args.cache_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.cache_path.with_name(args.cache_path.name + ".tmp")
     cache_metadata = {**metadata, "status": "completed", "encoded_utc": datetime.now(timezone.utc).isoformat()}
@@ -175,11 +222,17 @@ def generate(args, metadata):
         raise ValueError("--prompt differs from cached features; rerun encode for this prompt")
     features = cached["features"]
     validate_features(features, torch)
+    encoding_metadata = cached.get("metadata", {})
+    expected_text_device = "cuda:0" if args.text_device == "cuda-offload" else "cpu"
+    if encoding_metadata.get("device") != expected_text_device or (
+            args.text_device == "cuda-offload" and encoding_metadata.get("text_execution") != "cuda-module-offload"):
+        raise ValueError("Cached text execution differs from --text-device; rerun encode")
     metadata.update(
         prompt=prompt, duration_seconds=args.duration, seed=args.seed, cfg_scale=5.0,
         steps=args.steps, full_default_steps=(args.steps == 50), model_config=config,
         checkpoint=file_info(checkpoint_path), feature_cache=file_info(args.cache_path),
-        encoding_metadata=cached.get("metadata", {}), motion_dtype="torch.float32",
+        encoding_metadata=encoding_metadata, text_device=encoding_metadata["device"],
+        text_execution=encoding_metadata.get("text_execution", "cpu"), motion_dtype="torch.float32",
         official_processing={
             "rotation_slerp_smoothing": True, "translation_savgol_smoothing": True,
             "global_ground_alignment": True,
@@ -273,7 +326,7 @@ def main():
     started = time.perf_counter()
     metadata = {
         "stage": args.stage, "status": "running", "device": None, "model_device": None,
-        "text_device": "cpu", "requested_motion_device": args.device,
+        "text_device": None, "requested_text_device": args.text_device, "requested_motion_device": args.device,
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "python": sys.version, "python_executable": sys.executable, "repository": str(args.repo),
         "cpu_threads": args.threads,

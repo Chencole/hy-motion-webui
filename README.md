@@ -27,7 +27,7 @@ short_description: Visual controls for an existing local motion backend.
 | 本社区可视化封装 | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | 网页、CLI 调用层及可选的分阶段 GPU 适配 |
 | 本社区版界面展示 | [Hugging Face Space](https://huggingface.co/spaces/coooooooai/hy-motion-webui) | 免费静态展示 |
 
-**分阶段调用脚本是社区适配，并非腾讯发布的 CPU/GPU 安装包。** `deploy/windows-gpu/backend` 提供 CPU 文本编码和 CPU/CUDA 动作生成的适配、锁定依赖及安装说明；原有 CPU 后端仍可沿用。本网页不是腾讯官方产品；官方源码、权重和本社区网页封装是不同项目。当前接入依据为官方源码提交 [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229)。
+**分阶段调用脚本是社区适配，并非腾讯发布的 CPU/GPU 安装包。** `deploy/windows-gpu/backend` 提供 CPU/逐层 CUDA 文本编码和 CPU/CUDA 动作生成的适配、锁定依赖及安装说明；原有 CPU 后端仍可沿用。本网页不是腾讯官方产品；官方源码、权重和本社区网页封装是不同项目。当前接入依据为官方源码提交 [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229)。
 
 Hugging Face 发布的是免费静态界面展示，不提供在线算力，也不连接访问者本机。可查看单个与批量界面，但不能提交任务。实际生成需要自己的本机服务或已配置的托管服务。
 
