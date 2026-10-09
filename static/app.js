@@ -445,18 +445,23 @@ async function start(event) {
 function showEnvironment() {
   const runtime = settings.runtime || {mode: 'local', backend: 'local', cancel_on_close: true};
   const cloud = runtime.backend === 'fc';
-  const label = cloud ? '阿里 FC · GPU' : runtime.mode === 'hosted' ? '服务器 CPU' : '本机 CPU';
+  const cuda = settings.backend.device === 'cuda:0';
+  const invalidDevice = settings.backend.device === null;
+  const label = cloud ? '阿里 FC · GPU' : invalidDevice ? '设备配置错误' : cuda ? 'GPU 动作 · CPU 文本' : runtime.mode === 'hosted' ? '服务器 CPU' : '本机 CPU';
   $('environment-badge').textContent = settings.showcase ? '界面演示' : `${label} · ${settings.backend.ready ? '已就绪' : '未就绪'}`;
   $('environment-badge').classList.toggle('ready', settings.backend.ready && !settings.showcase);
   let message;
   if (settings.showcase) message = `${settings.backend.message} 此页面不启动模型或调用付费云服务，可切换查看单个和批量界面。`;
   else {
     message = settings.backend.ready ? (cloud ? '已连接阿里 FC GPU 执行环境。' : runtime.mode === 'hosted' ? '已连接服务器模型环境。' : '已连接现有本机版本。') : `${settings.backend.message} `;
+    if (cuda) message += '文本在 CPU 编码，动作在 NVIDIA GPU 生成。';
     message += runtime.cancel_on_close ? '关闭最后一个页面将取消任务并停止服务。' : '关闭页面后任务继续运行，可稍后回到本页查看结果。';
   }
   $('environment').textContent = message;
   $('environment').classList.toggle('ready', settings.backend.ready && !settings.showcase);
   $('thread-settings').hidden = cloud;
+  const threadHelp = $('thread-settings').querySelector('.help');
+  if (threadHelp) threadHelp.textContent = cuda ? '线程数控制 CPU 文本编码；首次处理提示词可能较慢。动作生成使用 GPU。' : '线程越多不一定越快。CPU 生成可能需要较长时间。';
   $('advanced-settings').hidden = cloud && settings.kind === 'hymotion';
 }
 

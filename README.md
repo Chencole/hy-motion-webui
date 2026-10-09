@@ -24,16 +24,16 @@ short_description: Visual controls for an existing local motion backend.
 | --- | --- | --- |
 | 腾讯官方源码 | [Tencent-Hunyuan/HY-Motion-1.0](https://github.com/Tencent-Hunyuan/HY-Motion-1.0) | 模型与官方推理实现 |
 | 腾讯官方权重 | [tencent/HY-Motion-1.0](https://huggingface.co/tencent/HY-Motion-1.0) | 模型下载、模型卡及许可 |
-| 本社区可视化封装 | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | 本仓库，只提供网页与现有 CLI 的调用层 |
+| 本社区可视化封装 | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | 网页、CLI 调用层及可选的分阶段 GPU 适配 |
 | 本社区版界面展示 | [Hugging Face Space](https://huggingface.co/spaces/coooooooai/hy-motion-webui) | 免费静态展示 |
 
-**本机的 CPU CLI 和分阶段调用脚本是本地适配，并非从另一个已公开社区 CPU 仓库下载。它们尚未包含在本仓库，也没有独立公开下载链接。** 本网页不是腾讯官方产品；官方源码、权重和本社区网页封装是不同项目。当前接入依据为官方源码提交 [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229)。
+**分阶段调用脚本是社区适配，并非腾讯发布的 CPU/GPU 安装包。** `deploy/windows-gpu/backend` 提供 CPU 文本编码和 CPU/CUDA 动作生成的适配、锁定依赖及安装说明；原有 CPU 后端仍可沿用。本网页不是腾讯官方产品；官方源码、权重和本社区网页封装是不同项目。当前接入依据为官方源码提交 [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229)。
 
 Hugging Face 发布的是免费静态界面展示，不提供在线算力，也不连接访问者本机。可查看单个与批量界面，但不能提交任务。实际生成需要自己的本机服务或已配置的托管服务。
 
 ## 本机启动
 
-需要 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和已经可用的对应本机 CPU 命令行安装（见下节）；克隆源码还需要 Git。网页依赖和模型环境分开，网页不会更改模型环境。**选择本地 CPU 模式时，仅克隆本仓库或官方模型仓库还不能运行后端，因为所需的本地 CPU 适配尚未发布。** 可选 FC GPU 模式的依赖与构建步骤见云部署说明。
+需要 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和可用的对应后端（见下节）；克隆源码还需要 Git。网页依赖和模型环境分开，网页不会自动安装模型。已有 CPU 后端可继续使用下面的启动方式；新 Windows NVIDIA 安装按 [GPU 部署说明](deploy/windows-gpu/README.md) 准备后端，再使用 `Start-GPU.cmd`。可选 FC GPU 模式的依赖与构建步骤见云部署说明。
 
 已有匹配后端、但还没有网页源码时，先在选定的项目目录执行：
 
@@ -58,7 +58,7 @@ PowerShell 中第一行使用 `cd E:\dev\HYMotion-WebUI`。
 
 ## 已有后端位置
 
-默认查找同级 `HYMotion` 文件夹，可设置 `MOTION_BACKEND_ROOT` 改为自己的目录。这个网页针对既有本机 CPU 命令行入口 `src/hy_motion_cpu/cli.py`，使用该目录 `.venv` 中的 Python。**它不是模型的通用安装包；仅克隆本网页仓库不会获得模型、CPU 适配或权重。** 模型尚未安装时页面会显示环境未就绪，不自动下载任何内容。
+默认查找同级 `HYMotion` 文件夹，可设置 `MOTION_BACKEND_ROOT` 改为自己的目录。这个网页调用 `src/hy_motion_cpu/cli.py`，使用该目录 `.venv` 中的 Python。**仅克隆本网页仓库不会自动安装模型、后端环境或权重。** 模型尚未安装时页面会显示环境未就绪，不自动下载任何内容。
 
 自定义已有后端位置，在启动网页前设置（路径改为实际位置；此设置只作用于当前终端）：
 
@@ -129,7 +129,7 @@ FC 需要独立的 HY-Motion GPU 函数、服务端访问凭据与结果存储�
 ## 常见问题
 
 - **`WinError 10048` / 8770 端口已占用**：先打开上面的本机地址；若 HY-Motion 页面正常显示，说明服务已在运行，无需重复启动。要重启，关闭该服务的所有页面并等约 3 秒，或在它的启动终端按 `Ctrl+C`。若端口由其他程序使用，可运行 `uv run python app.py --port 8772`，然后打开 `http://127.0.0.1:8772`。
-- **环境未就绪**：确认后端目录、CPU CLI、模型文件和原有 `.venv` 都存在。网页不自动安装模型，也不提供未发布 CPU 适配的下载。
+- **环境未就绪**：确认后端目录、CLI、模型文件和兼容 `.venv` 都存在。GPU 模式先完成 [安装与真实推理检查](deploy/windows-gpu/README.md)，再使用 `Start-GPU.cmd`。网页不会自动安装模型。
 - **Hugging Face 的生成按钮不可用**：Space 是静态界面展示，实际推理需要自己的本机或托管服务。
 - **托管模式显示登录提示或 401**：确认服务配置了账号与密码摘要，并使用该账号登录；本地浏览器 cookie 不能替代托管认证。
 

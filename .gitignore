@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
+.gpu-settings.json
 !.env.example
 runtime/
 data/
