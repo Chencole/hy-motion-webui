@@ -12,16 +12,16 @@ The UI adds task orchestration without changing model inference, motion data or 
 | --- | --- | --- |
 | Official Tencent source | [Tencent-Hunyuan/HY-Motion-1.0](https://github.com/Tencent-Hunyuan/HY-Motion-1.0) | Model and official inference implementation |
 | Official Tencent weights | [tencent/HY-Motion-1.0](https://huggingface.co/tencent/HY-Motion-1.0) | Downloads, model card and license |
-| This community UI | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | Web interface and bridge to an existing CLI |
+| This community UI | [Chencole/hy-motion-webui](https://github.com/Chencole/hy-motion-webui) | Web interface, CLI bridge and optional staged GPU adapter |
 | Community UI showcase | [Hugging Face Space](https://huggingface.co/spaces/coooooooai/hy-motion-webui) | Free static demonstration |
 
-**The required CPU CLI and staged inference scripts were developed locally, not obtained from a separate published community CPU repository. They are not included here and do not yet have a separate public download link.** This UI is not an official Tencent product. The current integration is based on official source commit [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229).
+**The staged inference scripts are community adapters, not an official Tencent CPU/GPU distribution.** `deploy/windows-gpu/backend` provides CPU or CUDA module-offloaded text encoding, CPU/CUDA motion generation, pinned dependencies and installation instructions. Existing CPU backends remain supported. This UI is not an official Tencent product. The current integration is based on official source commit [`4e426f5`](https://github.com/Tencent-Hunyuan/HY-Motion-1.0/tree/4e426f5a1021cbcf7f375458c37b840ee7225229).
 
 Hugging Face hosts a static interface only. It provides no online inference and does not connect to a visitor's computer. You can inspect both single and batch modes, but cannot submit jobs there. Actual generation requires your own local or configured hosted service.
 
 ## Start locally
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and have the matching local CPU backend already available. Git is also required to clone the source. The UI uses its own environment and leaves the model environment unchanged. **For local CPU mode, a fresh clone of this repository or the official model repository is insufficient: the required CPU adapter has not been published.** Requirements and build steps for the optional FC GPU mode are documented separately.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and have a matching backend available. Git is also required to clone the source. The UI uses its own environment and does not automatically install models. Existing CPU backends can use the commands below. New Windows NVIDIA installations should follow the [GPU guide](deploy/windows-gpu/README.md), then use `Start-GPU.cmd`. Requirements and build steps for the optional FC GPU mode are documented separately.
 
 With a matching backend already installed, clone the UI into your chosen project directory:
 
@@ -119,7 +119,7 @@ FC requires a dedicated HY-Motion GPU function, server credentials and result st
 ## Troubleshooting
 
 - **`WinError 10048` / port 8770 in use:** open the local address first. If the HY-Motion page works, the service is already running. To restart, close all its tabs and wait about 3 seconds, or press `Ctrl+C` in its terminal. If another application owns the port, use `uv run python app.py --port 8772` and open `http://127.0.0.1:8772`.
-- **Environment not ready:** check the backend path, CPU CLI, model files and existing `.venv`. The UI does not install models or download the unpublished CPU adapter.
+- **Environment not ready:** check the backend path, CLI, model files and compatible `.venv`. For GPU mode, complete the [installation and real inference checks](deploy/windows-gpu/README.md), then use `Start-GPU.cmd`. The UI does not automatically install models.
 - **Generation disabled on Hugging Face:** the Space is a static showcase. Actual inference requires your own local or hosted service.
 - **Hosted login prompt or HTTP 401:** configure the username and password digest in the server environment, then use that account. A local browser cookie does not replace hosted authentication.
 

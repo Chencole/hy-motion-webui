@@ -1,0 +1,1 @@
+{"schema":1,"text_devices":["cpu","cuda-offload"],"motion_devices":["cpu","cuda:0"],"upstream_commit":"4e426f5a1021cbcf7f375458c37b840ee7225229"}
